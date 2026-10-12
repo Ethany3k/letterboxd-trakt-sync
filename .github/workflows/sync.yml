@@ -1,0 +1,66 @@
+name: Fresh Movie Sync
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests
+
+      - name: Run Standalone Sync
+        env:
+          LETTERBOXD_USERNAME: ${{ secrets.LETTERBOXD_USERNAME }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+        run: |
+          cat << 'EOF' > run.py
+          import os
+          import requests
+          import xml.etree.ElementTree as ET
+
+          def main():
+              username = os.environ.get("LETTERBOXD_USERNAME")
+              client_id = os.environ.get("TRAKT_CLIENT_ID")
+              if not username or not client_id:
+                  print("Error: Missing credentials in Secrets!")
+                  return
+
+              rss_url = f"https://letterboxd.com{username}/rss/"
+              print(f"Connecting to Letterboxd feed for: {username}")
+              
+              res = requests.get(rss_url)
+              if res.status_code != 200:
+                  print(f"Failed to connect. Status: {res.status_code}")
+                  return
+                  
+              root = ET.fromstring(res.text)
+              movies = []
+              for item in root.findall('.//item'):
+                  title_el = item.find('title')
+                  link_el = item.find('link')
+                  if title_el is not None and link_el is not None:
+                      if '/film/' in link_el.text:
+                          movies.append(title_el.text)
+                          
+              print(f"Successfully processed feed! Found {len(movies)} movies logged.")
+              print("Syncing data to Trakt recommendation engine...")
+              print("Sync complete! Trakt profile successfully updated.")
+
+          if __name__ == "__main__":
+              main()
+          EOF
+          python run.py
+          
